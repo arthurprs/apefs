@@ -92,6 +92,7 @@ struct ApeInode: ApeInodeRaw
     {
         return ++references;
     };
+
 };
 
 /*
@@ -99,9 +100,9 @@ struct ApeInode: ApeInodeRaw
 */
 struct ApeDirectoryEntryRaw
 {
-    inodeid_t inode;
+    inodeid_t inodeid;
     uint8_t flags;
-    uint8_t size;
+    uint8_t entrysize;
     uint8_t namelen;
 };
 
@@ -133,58 +134,53 @@ enum ApeFileSeekMode {APESEEK_SET, APESEEK_CUR, APESEEK_END};
 class ApeFile
 {
 public:
-    int32_t read(void* buffer, int32_t size);
-    int32_t write(void* buffer, int32_t size);
-    int32_t tell();
-    int32_t seek();
-    void close();
+    ApeFile(const ApeInode& inode, const ApeFileSystem& owner);
+    ~ApeFile();
+    uint32_t read(void* buffer, uint32_t size);
+    uint32_t write(void* buffer, uint32_t size);
+    uint32_t tell();
+    uint32_t seek(ApeFileSeekMode mode, int32_t offset);
+    uint32_t size();
+    bool close();
 
 private:
-    int32_t position;
-    ApeInode& inode_;
-    ApeFileMode mode_;
-    ApeFileSystem& owner_;
+    uint32_t position;
+    const ApeInode& inode_;
+    const ApeFileMode mode_;
+    const ApeFileSystem& owner_;
 };
 
 class ApeDirectory
 {
 public:
-    void listfiles(vector<string>& files);
-    void listdirectories(vector<string>& directories);
+    ApeDirectory(const ApeInode& inode, const ApeFileSystem& owner);
+    bool listfiles(vector<string>& files);
+    bool listdirectories(vector<string>& directories);
+
 private:
-    int32_t blockscached; // number of blocks (tables) cached
-    map<string, ApeDirectoryEntry> entries_;
-    ApeInode& inode_;
-    ApeFileSystem& owner_;
+    map<string, inodeid_t> entriescache_; // cache for fast lookup
+    const ApeInode& inode_;
+    const ApeFileSystem& owner_;
 };
 
 
 class ApeFileSystem
 {
-private :
-    fstream file_;
-
-    map<blocknum_t, ApeBlock> cachedblocks_;
-    map<inodeid_t, ApeDirectory> cachedfolders_; // map of cached folders
-    map<inodeid_t, ApeInode> cachedinodes_; // map of cached inodes
-    map<inodeid_t, uint32_t> inodes_; // map of inodes on disk
-    vector<blocknum_t> freeblocks_; // list of free Blocks
-
 public:
     ApeFileSystem(const string& fspath);
     ~ApeFileSystem();
 
-    // file system related
-    void compact(); // compact free Blocks
+    // maintence related
     void defrag(); // defragment files (also compact free Blocks)
     // block related
     bool blockfree(blocknum_t blocknum);
-    bool blockread(ApeBlock& block);
-    bool blockwrite(ApeBlock& block, bool nocache = false);
-    bool blockalloc(ApeInode& inode, ApeBlock& block);
+    bool blockread(blocknum_t blocknum, ApeBlock& block);
+    bool blockwrite(const ApeBlock& block);
+    bool blockalloc(const ApeInode& inode, ApeBlock& block);
     // inode related
     bool inodefree(inodeid_t inodeid);
     bool inoderead(inodeid_t inodeid, ApeInode& inode);
+    bool inodewrite(const ApeInode& inode);
     bool inodealloc(ApeInode& inode);
     // file related
     bool fileexists(const string& filepath);
@@ -194,6 +190,14 @@ public:
     bool directoryexists(const string& filepath);
     bool directoryopen(const string& directorypath, ApeDirectory& directory);
     bool directorydelete(const string& filepath);
+
+private :
+    fstream file_;
+    map<blocknum_t, ApeBlock> cachedblocks_;
+    map<inodeid_t, ApeDirectory> cachedfolders_; // map of cached folders
+    map<inodeid_t, ApeInode> cachedinodes_; // map of cached inodes
+    map<inodeid_t, uint32_t> inodes_; // map of inodes on disk
+    vector<blocknum_t> freeblocks_; // list of free Blocks
 };
 
 #endif // APEFILESYSTEM_H
