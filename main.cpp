@@ -1,5 +1,6 @@
 #include <iostream>
 #include "apefs/apefilesystem.h"
+#include "apefs/apebitmap.h"
 
 using namespace std;
 
