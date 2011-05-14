@@ -12,11 +12,13 @@ class ApeBitMap
     public:
         ApeBitMap();
         ~ApeBitMap();
+		void setall();
+		void unsetall();
 		void reserve(uint32_t size);
         void tobuffer(void* bitbuffer);
         void frombuffer(void* bitbuffer, uint32_t bytesize);
-        void setbit(uint32_t bitnum);
-        void unsetbit(uint32_t bitnum);
+        bool setbit(uint32_t bitnum);
+        bool unsetbit(uint32_t bitnum);
         bool getbit(uint32_t bitnum);
         uint32_t findunsetbit();
         uint32_t size() const; // in bytes!

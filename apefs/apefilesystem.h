@@ -29,7 +29,6 @@ struct ApeBlock
 {
     blocknum_t num;
     uint8_t data[BLOCKSIZE];
-    bool dirty;
 };
 
 /*
@@ -169,12 +168,12 @@ public:
     bool blockfree(blocknum_t blocknum);
     bool blockread(blocknum_t blocknum, ApeBlock& block);
     bool blockread(const ApeInode& inode, uint32_t blocknum, ApeBlock& block);
-    bool blockwrite(const ApeBlock& block);
+    bool blockwrite(ApeBlock& block);
     bool blockalloc(ApeInode& inode, ApeBlock& block);
     // inode related
     bool inodefree(inodenum_t inodenum);
     bool inoderead(inodenum_t inodenum, ApeInode& inode);
-    bool inodewrite(const ApeInode& inode);
+    bool inodewrite(ApeInode& inode);
     bool inodealloc(ApeInode& inode);
     // file related
     bool fileexists(const string& filepath);
@@ -190,13 +189,15 @@ public:
 	bool create(const string& fspath, uint32_t fssize);
     bool close();
 	uint32_t size() const;
-private :
+
+private:
 	uint32_t inodesoffset_;
 	uint32_t blocksoffset_;
 	ApeSuperBlock superblock_;
     fstream file_;
 	ApeBitMap inodesbitmap_;
 	ApeBitMap blocksbitmap_;
+	static bool parsepath(const string &path, vector<string> &parsedpath);
 };
 
 #endif // APEFILESYSTEM_H

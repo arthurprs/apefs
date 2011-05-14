@@ -198,19 +198,24 @@ bool ApeDirectory::removeentry(const string& name)
 
 bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
 {
-	return false;
+	uint32_t freebit = blocksbitmap_.findunsetbit();
+	if (freebit == NOBIT)
+		return false;
+	blocksbitmap_.setbit(freebit);
+	memset(&inode, 0, sizeof(ApeBlock));
+	block.num = freebit;
+	return true;
 }
 
 bool ApeFileSystem::blockfree(blocknum_t blocknum)
 {
-	return false;
+	return blocksbitmap_.unsetbit(blocknum);
 }
 
 bool ApeFileSystem::blockread(blocknum_t blocknum, ApeBlock& block)
 {
 	file_.seekp(blocksoffset_ + blocknum * BLOCKSIZE);
 	block.num = blocknum;
-	block.dirty = false;
     file_.read((char*)&block.data, BLOCKSIZE);
     return file_.good();
 }
@@ -240,9 +245,11 @@ bool ApeFileSystem::blockread(const ApeInode& inode, uint32_t blocknum, ApeBlock
     }
 }
 
-bool ApeFileSystem::blockwrite(const ApeBlock& block)
+bool ApeFileSystem::blockwrite(ApeBlock& block)
 {
-	return false;
+	file_.seekp(blocksoffset_ + block.num * BLOCKSIZE);
+    file_.write((char*)&block.data, BLOCKSIZE);
+    return file_.good();
 }
 
 void ApeFileSystem::defrag()
@@ -293,21 +300,26 @@ bool ApeFileSystem::inodealloc(ApeInode& inode)
 	inodesbitmap_.setbit(freebit);
 	memset(&inode, 0, sizeof(ApeInode));
 	inode.num = freebit;
+	return true;
 }
 
-bool ApeFileSystem::inodefree(inodenum_t inodeid)
+bool ApeFileSystem::inodefree(inodenum_t inodenum)
 {
-	return false;
+	return inodesbitmap_.unsetbit(inodenum);
 }
 
-bool ApeFileSystem::inoderead(inodenum_t inodeid, ApeInode& inode)
+bool ApeFileSystem::inoderead(inodenum_t inodenum, ApeInode& inode)
 {
-	return false;
+	file_.seekp(inodesoffset_ + inodenum * sizeof(ApeInodeRaw));
+    file_.read((char*)&inode, sizeof(ApeInodeRaw));
+    return file_.good();
 }
 
-bool ApeFileSystem::inodewrite(const ApeInode& inode)
+bool ApeFileSystem::inodewrite(ApeInode& inode)
 {
-	return false;
+	file_.seekp(inodesoffset_ + inode.num * sizeof(ApeInodeRaw));
+    file_.write((char*)&inode, sizeof(ApeInodeRaw));
+    return file_.good();
 }
 
 bool ApeFileSystem::create(const string& fspath, uint32_t fssize)
@@ -335,16 +347,22 @@ bool ApeFileSystem::create(const string& fspath, uint32_t fssize)
 	char *blank = new char[BLOCKSIZE];
 	memset(blank, 0, BLOCKSIZE);
 
-	int totalblanks = superblock_.inodemaps + superblock_.blockmaps + superblock_.inodeblocks;
+	int totalblanks = superblock_.blockmaps + superblock_.inodemaps + superblock_.inodeblocks;
 	for (int i = 0; i < totalblanks; i++)
 		file_.write(blank, BLOCKSIZE);
 
 	delete[] blank;
 
+	// init bitmaps
+	blocksbitmap_.reserve(superblock_.blockmaps * BLOCKSIZE);
+	blocksbitmap_.unsetall();
+	inodesbitmap_.reserve(superblock_.inodemaps * BLOCKSIZE);
+	inodesbitmap_.unsetall();
+
 	// create root folder
 	ApeInode rootinode;
 	inodealloc(rootinode);
-	rootinode.flags |= APEFLAG_FOLDER;
+	rootinode.flags = APEFLAG_FOLDER;
 	inodewrite(rootinode);
 
 	return true;
@@ -356,3 +374,22 @@ inline uint32_t ApeFileSystem::size() const
 	return superblock_.filesystemsize;
 }
 
+bool ApeFileSystem::parsepath(const string &path, vector<string> &parsedpath)
+{
+	parsedpath.clear();
+	int sep = path.find('/');
+	if (path.length() != 0 && sep == string::npos)
+		sep = 0;
+
+	while (sep != string::npos)
+	{
+		int nextsep = path.find('/', sep + 1);
+		string piece = path.substr(sep + 1, nextsep - 1 - sep);
+		if (piece.length() > 0)
+			parsedpath.push_back(piece);
+		else if (sep != path.length() - 1)
+			return false;
+		sep = nextsep;
+	}
+	return parsedpath.size() != 0;
+}

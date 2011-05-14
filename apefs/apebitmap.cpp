@@ -32,18 +32,26 @@ ApeBitMap::~ApeBitMap()
 	reserve(0);
 }
 
-void ApeBitMap::setbit(uint32_t bitnum)
+bool ApeBitMap::setbit(uint32_t bitnum)
 {
     uint32_t bytenum = bitnum / 8;
     uint32_t bytebit = 7 - (bitnum % 8);
-    bits_[bytenum] =  bits_[bytenum] | (1 << bytebit);
+	uint8_t newbyte = bits_[bytenum] | (1 << bytebit);
+    if (newbyte == bits_[bytenum])
+		return false;
+	bits_[bytenum] = newbyte;
+	return true;
 }
 
-void ApeBitMap::unsetbit(uint32_t bitnum)
+bool ApeBitMap::unsetbit(uint32_t bitnum)
 {
     uint32_t bytenum = bitnum / 8;
     uint32_t bytebit = 7 - (bitnum % 8);
-    bits_[bytenum] =  bits_[bytenum] & (!(1 << bytebit));
+	uint8_t newbyte = bits_[bytenum] & (!(1 << bytebit));
+    if (newbyte == bits_[bytenum])
+		return false;
+	bits_[bytenum] = newbyte;
+	return true;
 }
 
 bool ApeBitMap::getbit(uint32_t bitnum)
@@ -55,17 +63,17 @@ bool ApeBitMap::getbit(uint32_t bitnum)
 
 uint32_t ApeBitMap::findunsetbit()
 {
-    uint32_t i = 0;
-    while (i < size_)
+    for (int i = 0; i < size_; i++)
     {
-        if (bits_[i])
+        if (bits_[i] != 255)
         {
             uint8_t byte = bits_[i];
-            uint32_t bit = (i + 1) * 8;
-            while (byte != 1)
+            uint32_t bit = i * 8;
+			uint8_t mask = 128;
+            while (byte & mask != 0)
             {
-                byte >>= 1;
-                bit--;
+                mask /= 2;
+                bit++;
             }
             return bit;
         }
@@ -76,4 +84,15 @@ uint32_t ApeBitMap::findunsetbit()
 inline uint32_t ApeBitMap::size() const
 {
     return size_;
+}
+
+void ApeBitMap::setall()
+{
+	memset(bits_, 0xFF, size_);
+}
+
+	
+void ApeBitMap::unsetall()
+{
+	memset(bits_, 0, size_);
 }
