@@ -1,19 +1,35 @@
 #include "apebitmap.h"
 
-ApeBitMap::ApeBitMap(uint32_t size)
+ApeBitMap::ApeBitMap()
 {
-    size_ = (size / 8) + (size % 8 ? 1 : 0);
-    bits_ = new uint8_t[size_ / 8]();
+	bits_ = NULL;
+}
+
+void ApeBitMap::reserve(uint32_t size)
+{
+	if (bits_)
+		delete[] bits_;
+	if (size > 0)
+	{
+		size_ = size;
+		bits_ = new uint8_t[size];
+	}
 }
 
 void ApeBitMap::tobuffer(void* bitbuffer)
 {
-    memcpy(bits_, bitbuffer, size_ / 8);
+    memcpy(bitbuffer, bits_, size_);
+}
+
+void ApeBitMap::frombuffer(void* bitbuffer, uint32_t size)
+{
+	reserve(size);
+	memcpy(bits_, bitbuffer, size);
 }
 
 ApeBitMap::~ApeBitMap()
 {
-    delete[] bits_;
+	reserve(0);
 }
 
 void ApeBitMap::setbit(uint32_t bitnum)
@@ -39,9 +55,8 @@ bool ApeBitMap::getbit(uint32_t bitnum)
 
 uint32_t ApeBitMap::findunsetbit()
 {
-    uint32_t bytesize = size_ / 8;
     uint32_t i = 0;
-    while (i < bytesize)
+    while (i < size_)
     {
         if (bits_[i])
         {

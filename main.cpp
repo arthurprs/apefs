@@ -1,11 +1,12 @@
 #include <iostream>
 #include "apefs/apefilesystem.h"
-#include "apefs/apebitmap.h"
 
 using namespace std;
 
 int main()
 {
-    printf("%d", 1);
+	ApeFileSystem fs;
+	fs.create("lixo.apefs", 22222222);
+	system("PAUSE");
     return 0;
 }

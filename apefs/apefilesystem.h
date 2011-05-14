@@ -10,12 +10,14 @@
 #include <vector>
 #include <map>
 #include <algorithm>
-#include <pthread.h>
 #include <stdint.h>
+//#include <time.h>
+#include "apebitmap.h"
 
 using namespace std;
 
 const uint32_t BLOCKSIZE = 1024*4; // 4kb
+const uint32_t MAXINODES = 3 * BLOCKSIZE * 8; // 3 map blocks ~~ 100k inodes
 
 typedef uint32_t inodenum_t;
 typedef uint32_t blocknum_t;
@@ -39,8 +41,9 @@ struct ApeSuperBlock
     char magic[5]; // "apefs"
     uint8_t version;
     uint32_t filesystemsize;
-    uint8_t inodemaps; // number of inode maps after the superblock
-    uint8_t blockmaps; // number of block maps after the inode maps
+	uint32_t blockmaps; // number of block maps after the superblock
+    uint8_t inodemaps; // number of inode maps after block maps
+	uint8_t inodeblocks; // number of blocks reserved for inode table
 };
 
 /*
@@ -59,9 +62,9 @@ struct ApeInodeRaw
     inodenum_t num; // "inode number"
     inodenum_t parentid; // parent inode
     uint8_t flags;
-    clock_t creationtime;
-    clock_t lastmodificationtime;
-    clock_t lastaccesstime;
+    //clock_t creationtime;
+    //clock_t lastmodificationtime;
+    //clock_t lastaccesstime;
     uint32_t size; // size in bytes
     uint16_t blockscount;
     /*
@@ -72,18 +75,17 @@ struct ApeInodeRaw
     blocknum_t blocks[10];
 };
 
+const uint32_t INODESPERBLOCK = BLOCKSIZE / sizeof(ApeInodeRaw);
+
 /*
     The above raw inode structure
     plus variable size info, like data Blocks numbers
 */
 struct ApeInode: ApeInodeRaw
 {
-    bool dirty;
-    uint16_t references; // number of objects pointing to this inode
+    //bool dirty;
     bool isfolder() const;
     bool isfile() const;
-    uint16_t unref();
-    uint16_t ref();
 };
 
 /*
@@ -179,18 +181,22 @@ public:
     bool fileopen(const string& filepath, ApeFileMode mode, ApeFile& file);
     bool filedelete(const string& filepath);
     // directory related
-    bool directoryexists(const string& filepath);
-    bool directoryopen(const string& directorypath, ApeDirectory& directory);
-    bool directorydelete(const string& filepath);
+    bool directoryexists(const string& path);
+	bool directorycreate(const string& path);
+    bool directoryopen(const string& path, ApeDirectory& directory);
+    bool directorydelete(const string& path);
 
-    bool open(const string& fspath);
+    bool open(const string &fspath);
+	bool create(const string& fspath, uint32_t fssize);
     bool close();
+	uint32_t size() const;
 private :
-	uint32_t blocksoffset;
+	uint32_t inodesoffset_;
+	uint32_t blocksoffset_;
+	ApeSuperBlock superblock_;
     fstream file_;
-    map<blocknum_t, ApeBlock> cachedblocks_;
-    map<inodenum_t, ApeDirectory> cachedfolders_; // map of cached folders
-    map<inodenum_t, ApeInode> cachedinodes_; // map of cached inodes
+	ApeBitMap inodesbitmap_;
+	ApeBitMap blocksbitmap_;
 };
 
 #endif // APEFILESYSTEM_H

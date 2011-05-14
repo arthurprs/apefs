@@ -1,23 +1,15 @@
 #include "apefilesystem.h"
 
+#include <math.h>
+
 inline bool ApeInode::isfolder() const
 {
-    return flags & APEFLAG_FOLDER;
+    return (flags & APEFLAG_FOLDER) != 0;
 }
 
 inline bool ApeInode::isfile() const
 {
     return flags & APEFLAG_FILE;
-}
-
-inline uint16_t ApeInode::unref()
-{
-    return --references;
-}
-
-inline uint16_t ApeInode::ref()
-{
-    return ++references;
 }
 
 ApeFileSystem::ApeFileSystem()
@@ -30,23 +22,50 @@ ApeFileSystem::~ApeFileSystem()
     close();
 }
 
-bool ApeFileSystem::open(const string &fsfilepath)
+bool ApeFileSystem::open(const string &fspath)
 {
-    file_.open(fsfilepath.c_str(), ios::in | ios::out | ios::binary | ios::app);
-    return !file_.fail();
+    file_.open(fspath.c_str(), ios::in | ios::out | ios::binary | ios::app);
+    if (!file_.good())
+		return false;
+
+	// read superblock
+	file_.seekp(0);
+	file_.read((char*)&superblock_, sizeof(ApeSuperBlock));
+
+	// verify if it's valid
+	if (strncmp("apefs", superblock_.magic, 5) != 0)
+		return false;
+
+	// set the offsets
+	inodesoffset_ = sizeof(ApeSuperBlock) + (superblock_.inodemaps + superblock_.blockmaps) * BLOCKSIZE;
+	blocksoffset_ = inodesoffset_ + superblock_.inodeblocks * BLOCKSIZE;
+	
+	// read bitmaps into memory
+	int buffersize = max(superblock_.blockmaps, (uint32_t)superblock_.inodemaps) * BLOCKSIZE;
+	char *buffer = new char[buffersize];
+
+	buffersize = superblock_.blockmaps * BLOCKSIZE;
+	file_.read(buffer, buffersize);
+	blocksbitmap_.frombuffer(buffer, buffersize);
+
+	buffersize = superblock_.inodemaps * BLOCKSIZE;
+	file_.read(buffer, buffersize);
+	inodesbitmap_.frombuffer(buffer, buffersize);
+
+	delete[] buffer;
+
+	return file_.good();
 }
 
 bool ApeFileSystem::close()
 {
     file_.close();
-    return !file_.fail();
+    return file_.good();
 }
 
 ApeFile::ApeFile(ApeFileMode mode, ApeInode& inode, ApeFileSystem& owner)
     : inode_(inode), owner_(owner), mode_(mode)
 {
-    inode_.ref();
-
     switch (mode_)
     {
     case APEFILE_APPEND:
@@ -71,7 +90,6 @@ bool ApeFile::close()
     if (mode_ == APEFILE_CLOSE)
         return false;
 
-    inode_.unref();
     return true;
 }
 
@@ -143,6 +161,7 @@ inline uint32_t ApeFile::tell() const
 
 uint32_t ApeFile::write(void* buffer, uint32_t size)
 {
+	return 0;
 }
 
 ApeFile::~ApeFile()
@@ -158,12 +177,12 @@ ApeDirectory::ApeDirectory(ApeInode& inode, ApeFileSystem& owner)
 
 bool ApeDirectory::addentry(const string& name, inodenum_t entryinode)
 {
-
+	return false;
 }
 
 bool ApeDirectory::findentry(const string& name, inodenum_t& entryinode)
 {
-
+	return false;
 }
 
 inline bool ApeDirectory::isempty()
@@ -173,25 +192,27 @@ inline bool ApeDirectory::isempty()
 
 bool ApeDirectory::removeentry(const string& name)
 {
+	return false;
 }
 
 
 bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
 {
+	return false;
 }
 
 bool ApeFileSystem::blockfree(blocknum_t blocknum)
 {
-
+	return false;
 }
 
 bool ApeFileSystem::blockread(blocknum_t blocknum, ApeBlock& block)
 {
-	file_.seekp(blocksoffset + blocknum * BLOCKSIZE);
+	file_.seekp(blocksoffset_ + blocknum * BLOCKSIZE);
 	block.num = blocknum;
 	block.dirty = false;
     file_.read((char*)&block.data, BLOCKSIZE);
-    return !file_.fail();
+    return file_.good();
 }
 
 bool ApeFileSystem::blockread(const ApeInode& inode, uint32_t blocknum, ApeBlock& block)
@@ -221,49 +242,117 @@ bool ApeFileSystem::blockread(const ApeInode& inode, uint32_t blocknum, ApeBlock
 
 bool ApeFileSystem::blockwrite(const ApeBlock& block)
 {
+	return false;
 }
 
 void ApeFileSystem::defrag()
 {
+
 }
 
-bool ApeFileSystem::directorydelete(const string& filepath)
+bool ApeFileSystem::directorydelete(const string& path)
 {
+	return false;
 }
 
-bool ApeFileSystem::directoryexists(const string& filepath)
+bool ApeFileSystem::directoryexists(const string& path)
 {
+	return false;
 }
 
-bool ApeFileSystem::directoryopen(const string& directorypath, ApeDirectory& directory)
+bool ApeFileSystem::directorycreate(const string& path)
 {
+	return false;
+}
+
+bool ApeFileSystem::directoryopen(const string& path, ApeDirectory& directory)
+{
+	return false;
 }
 
 bool ApeFileSystem::filedelete(const string& filepath)
 {
+	return false;
 }
 
 bool ApeFileSystem::fileexists(const string& filepath)
 {
+	return false;
 }
 
 bool ApeFileSystem::fileopen(const string& filepath, ApeFileMode mode, ApeFile& file)
 {
+	return false;
 }
 
 bool ApeFileSystem::inodealloc(ApeInode& inode)
 {
+	uint32_t freebit = inodesbitmap_.findunsetbit();
+	if (freebit == NOBIT)
+		return false;
+	inodesbitmap_.setbit(freebit);
+	memset(&inode, 0, sizeof(ApeInode));
+	inode.num = freebit;
 }
 
 bool ApeFileSystem::inodefree(inodenum_t inodeid)
 {
+	return false;
 }
 
 bool ApeFileSystem::inoderead(inodenum_t inodeid, ApeInode& inode)
 {
+	return false;
 }
 
 bool ApeFileSystem::inodewrite(const ApeInode& inode)
 {
+	return false;
+}
+
+bool ApeFileSystem::create(const string& fspath, uint32_t fssize)
+{
+	file_.open(fspath.c_str(), ios::in | ios::out | ios::binary | ios::trunc);
+    if (!file_.good())
+		return false;
+
+    // set the superblock
+	superblock_.blockmaps = (uint8_t) ceil((float)fssize / BLOCKSIZE);
+	superblock_.filesystemsize = superblock_.blockmaps * BLOCKSIZE;
+	superblock_.inodemaps = MAXINODES / BLOCKSIZE / 8;
+	superblock_.inodeblocks = (uint8_t) ceil((float)BLOCKSIZE + sizeof(ApeInodeRaw));
+	strcpy(superblock_.magic, "apefs");
+	superblock_.version = 1;
+
+	// set the offsets
+	inodesoffset_ = sizeof(ApeSuperBlock) + (superblock_.inodemaps + superblock_.blockmaps) * BLOCKSIZE;
+	blocksoffset_ = inodesoffset_ + superblock_.inodeblocks * BLOCKSIZE;
+
+	// write superblock to file
+	file_.write((char*)&superblock_, sizeof(ApeSuperBlock));
+		
+	// write all necessary blanks
+	char *blank = new char[BLOCKSIZE];
+	memset(blank, 0, BLOCKSIZE);
+
+	int totalblanks = superblock_.inodemaps + superblock_.blockmaps + superblock_.inodeblocks;
+	for (int i = 0; i < totalblanks; i++)
+		file_.write(blank, BLOCKSIZE);
+
+	delete[] blank;
+
+	// create root folder
+	ApeInode rootinode;
+	inodealloc(rootinode);
+	rootinode.flags |= APEFLAG_FOLDER;
+	inodewrite(rootinode);
+
+	return true;
+}
+
+
+inline uint32_t ApeFileSystem::size() const
+{
+	return superblock_.filesystemsize;
 }
 
