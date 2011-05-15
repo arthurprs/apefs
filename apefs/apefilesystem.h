@@ -11,7 +11,6 @@
 #include <map>
 #include <algorithm>
 #include <stdint.h>
-//#include <time.h>
 #include "apebitmap.h"
 
 using namespace std;
@@ -40,17 +39,16 @@ struct ApeSuperBlock
     char magic[5]; // "apefs"
     uint8_t version;
     uint32_t filesystemsize;
-	uint32_t blockmaps; // number of block maps after the superblock
+    uint32_t blockmaps; // number of block maps after the superblock
     uint8_t inodemaps; // number of inode maps after block maps
-	uint8_t inodeblocks; // number of blocks reserved for inode table
+    uint8_t inodeblocks; // number of blocks reserved for inode table
 };
 
 /*
     Inode flags for extra info
 */
 const uint8_t APEFLAG_FILE = 1;
-const uint8_t APEFLAG_FOLDER = 2;
-const uint8_t APEFLAG_DUMMY = 4;
+const uint8_t APEFLAG_DIRECTORY = 2;
 
 /*
     mimics a real unix inode
@@ -82,8 +80,7 @@ const uint32_t INODESPERBLOCK = BLOCKSIZE / sizeof(ApeInodeRaw);
 */
 struct ApeInode: ApeInodeRaw
 {
-    //bool dirty;
-    bool isfolder() const;
+    bool isdirectory() const;
     bool isfile() const;
 };
 
@@ -92,15 +89,21 @@ struct ApeInode: ApeInodeRaw
 */
 struct ApeDirectoryEntryRaw
 {
-    inodenum_t inodeid;
+    inodenum_t inodenum;
     uint8_t flags;
-    uint8_t entrysize;
+    uint16_t entrysize;
     uint8_t namelen;
+    uint16_t realsize() const;
+    uint16_t freesize() const;
+    bool isdirectory() const;
+    bool isfile() const;
 };
 
 struct ApeDirectoryEntry : ApeDirectoryEntryRaw
 {
     string name;
+    void read(void *buffer);
+    void write(void *buffer);
 };
 
 /*
@@ -131,7 +134,7 @@ public:
     uint32_t read(void* buffer, uint32_t size);
     uint32_t write(void* buffer, uint32_t size);
     bool seek(ApeFileSeekMode mode, int32_t offset);
-	uint32_t tell() const;
+    uint32_t tell() const;
     uint32_t size() const;
     bool close();
 private:
@@ -141,29 +144,11 @@ private:
     ApeFileMode mode_;
 };
 
-class ApeDirectory
-{
-public:
-    ApeDirectory(ApeInode& inode,  ApeFileSystem& owner);
-    bool addentry(const string& name, inodenum_t inodenum);
-    bool removeentry(const string& name);
-    bool findentry(const string& name, inodenum_t& inodenum);
-    bool isempty();
-
-private:
-    map<string, inodenum_t> entriescache_; // cache for fast entry lookup
-    ApeInode& inode_;
-    ApeFileSystem& owner_;
-};
-
-
 class ApeFileSystem
 {
 public:
     ApeFileSystem();
     ~ApeFileSystem();
-    // maintence related
-    void defrag(); // defragment files (also compact free Blocks)
     // block related
     bool blockfree(blocknum_t blocknum);
     bool blockread(blocknum_t blocknum, ApeBlock& block);
@@ -180,24 +165,27 @@ public:
     bool fileopen(const string& filepath, ApeFileMode mode, ApeFile& file);
     bool filedelete(const string& filepath);
     // directory related
+    bool directoryaddentry(ApeInode& inode, ApeDirectoryEntry& entry);
+    bool directoryremoveentry(ApeInode& inode, const string& name);
+    bool directoryfindentry(ApeInode& inode, const string& name, ApeDirectoryEntry& entry);
     bool directoryexists(const string& path);
-	bool directorycreate(const string& path);
-    bool directoryopen(const string& path, ApeDirectory& directory);
+    bool directorycreate(const string& path);
+    bool directoryopen(const string& path, ApeInode& inode);
     bool directorydelete(const string& path);
 
     bool open(const string &fspath);
-	bool create(const string& fspath, uint32_t fssize);
+    bool create(const string& fspath, uint32_t fssize);
     bool close();
-	uint32_t size() const;
+    uint32_t size() const;
 
 private:
-	uint32_t inodesoffset_;
-	uint32_t blocksoffset_;
-	ApeSuperBlock superblock_;
+    uint32_t inodesoffset_;
+    uint32_t blocksoffset_;
+    ApeSuperBlock superblock_;
     fstream file_;
-	ApeBitMap inodesbitmap_;
-	ApeBitMap blocksbitmap_;
-	static bool parsepath(const string &path, vector<string> &parsedpath);
+    ApeBitMap inodesbitmap_;
+    ApeBitMap blocksbitmap_;
+    static bool parsepath(const string &path, vector<string> &parsedpath);
 };
 
 #endif // APEFILESYSTEM_H

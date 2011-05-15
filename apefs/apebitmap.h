@@ -12,9 +12,9 @@ class ApeBitMap
     public:
         ApeBitMap();
         ~ApeBitMap();
-		void setall();
-		void unsetall();
-		void reserve(uint32_t size);
+        void setall();
+        void unsetall();
+        void reserve(uint32_t size);
         void tobuffer(void* bitbuffer);
         void frombuffer(void* bitbuffer, uint32_t bytesize);
         bool setbit(uint32_t bitnum);
