@@ -47,7 +47,7 @@ bool ApeBitMap::unsetbit(uint32_t bitnum)
 {
     uint32_t bytenum = bitnum / 8;
     uint32_t bytebit = 7 - (bitnum % 8);
-    uint8_t newbyte = bits_[bytenum] & (!(1 << bytebit));
+    uint8_t newbyte = bits_[bytenum] & (~(1 << bytebit));
     if (newbyte == bits_[bytenum])
         return false;
     bits_[bytenum] = newbyte;
@@ -63,7 +63,7 @@ bool ApeBitMap::getbit(uint32_t bitnum)
 
 uint32_t ApeBitMap::findunsetbit()
 {
-    for (int i = 0; i < size_; i++)
+    for (uint32_t i = 0; i < size_; i++)
     {
         if (bits_[i] != 255)
         {

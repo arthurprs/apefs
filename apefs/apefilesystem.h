@@ -57,11 +57,7 @@ const uint8_t APEFLAG_DIRECTORY = 2;
 struct ApeInodeRaw
 {
     inodenum_t num; // "inode number"
-    inodenum_t parentid; // parent inode
     uint8_t flags;
-    //clock_t creationtime;
-    //clock_t lastmodificationtime;
-    //clock_t lastaccesstime;
     uint32_t size; // size in bytes
     uint16_t blockscount;
     /*
@@ -152,8 +148,9 @@ public:
     // block related
     bool blockfree(blocknum_t blocknum);
     bool blockread(blocknum_t blocknum, ApeBlock& block);
-    bool blockread(const ApeInode& inode, uint32_t blocknum, ApeBlock& block);
+    bool blockread(const ApeInode& inode, uint32_t blockpos, ApeBlock& block);
     bool blockwrite(ApeBlock& block);
+	bool blockalloc(ApeBlock& block, uint8_t fillbyte = 0);
     bool blockalloc(ApeInode& inode, ApeBlock& block);
     // inode related
     bool inodefree(inodenum_t inodenum);
@@ -185,7 +182,9 @@ private:
     fstream file_;
     ApeBitMap inodesbitmap_;
     ApeBitMap blocksbitmap_;
-    static bool parsepath(const string &path, vector<string> &parsedpath);
+	static bool parsepath(const string &path, vector<string> &parsedpath);
+	static string extractdirectory(const string &path);
+	static string extractfilename(const string& path);
 };
 
 #endif // APEFILESYSTEM_H
