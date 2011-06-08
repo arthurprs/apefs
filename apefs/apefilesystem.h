@@ -28,6 +28,7 @@ struct ApeBlock
 {
     blocknum_t num;
     uint8_t data[BLOCKSIZE];
+	void fill(uint8_t fillbyte);
 };
 
 /*
@@ -125,19 +126,20 @@ enum ApeFileSeekMode {APESEEK_SET, APESEEK_CUR, APESEEK_END};
 class ApeFile
 {
 public:
-    ApeFile(ApeFileMode mode, ApeInode& inode, ApeFileSystem& owner);
+	ApeFile(ApeFileSystem& owner);
+    bool open(const string& filepath, ApeFileMode mode);
     ~ApeFile();
     uint32_t read(void* buffer, uint32_t size);
-    uint32_t write(void* buffer, uint32_t size);
+    uint32_t write(const void* buffer, uint32_t size);
     bool seek(ApeFileSeekMode mode, int32_t offset);
     uint32_t tell() const;
     uint32_t size() const;
-    bool close();
+	bool good() const;
+    void close();
 private:
-    uint32_t position_;
-    ApeInode& inode_;
+	uint32_t position_;
+	inodenum_t inodenum_;
     ApeFileSystem& owner_;
-    ApeFileMode mode_;
 };
 
 class ApeFileSystem
@@ -150,16 +152,16 @@ public:
     bool blockread(blocknum_t blocknum, ApeBlock& block);
     bool blockread(const ApeInode& inode, uint32_t blockpos, ApeBlock& block);
     bool blockwrite(ApeBlock& block);
-	bool blockalloc(ApeBlock& block, uint8_t fillbyte = 0);
+	bool blockalloc(ApeBlock& block);
     bool blockalloc(ApeInode& inode, ApeBlock& block);
     // inode related
     bool inodefree(inodenum_t inodenum);
     bool inoderead(inodenum_t inodenum, ApeInode& inode);
     bool inodewrite(ApeInode& inode);
     bool inodealloc(ApeInode& inode);
+	bool inodeopen(const string& path, ApeInode& inode);
     // file related
     bool fileexists(const string& filepath);
-    bool fileopen(const string& filepath, ApeFileMode mode, ApeFile& file);
     bool filedelete(const string& filepath);
     // directory related
     bool directoryaddentry(ApeInode& inode, ApeDirectoryEntry& entry);
@@ -175,6 +177,9 @@ public:
     bool close();
     uint32_t size() const;
 
+	static string extractdirectory(const string &path);
+	static string extractfilename(const string& path);
+	static bool parsepath(const string &path, vector<string> &parsedpath);
 private:
     uint32_t inodesoffset_;
     uint32_t blocksoffset_;
@@ -182,9 +187,6 @@ private:
     fstream file_;
     ApeBitMap inodesbitmap_;
     ApeBitMap blocksbitmap_;
-	static bool parsepath(const string &path, vector<string> &parsedpath);
-	static string extractdirectory(const string &path);
-	static string extractfilename(const string& path);
 };
 
 #endif // APEFILESYSTEM_H

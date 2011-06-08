@@ -2,6 +2,11 @@
 #include <assert.h>
 #include <math.h>
 
+inline void ApeBlock::fill(uint8_t fillbyte)
+{
+	memset(&data, fillbyte, BLOCKSIZE);
+}
+
 inline bool ApeInode::isdirectory() const
 {
     return (flags & APEFLAG_DIRECTORY) != 0;
@@ -63,49 +68,94 @@ bool ApeFileSystem::close()
     return file_.good();
 }
 
-ApeFile::ApeFile(ApeFileMode mode, ApeInode& inode, ApeFileSystem& owner)
-    : inode_(inode), owner_(owner), mode_(mode)
+ApeFile::ApeFile(ApeFileSystem& owner)
+	: owner_(owner), inodenum_(INVALIDINODE), position_(0)
 {
-    switch (mode_)
+}
+
+bool ApeFile::open(const string& filepath, ApeFileMode mode)
+{
+	ApeInode inode;
+
+    switch (mode)
     {
     case APEFILE_APPEND:
-        position_ = inode_.size;
+		if (owner_.inodeopen(filepath, inode) && inode.isfile())
+		{
+			inodenum_ = inode.num;
+			position_ = inode.size;
+			return true;
+		}
+        break;
+
+	case APEFILE_OPEN:
+		if (owner_.inodeopen(filepath, inode) && inode.isfile())
+		{
+			inodenum_ = inode.num;
+			position_ = 0;
+			return true;
+		}
         break;
 
     case APEFILE_CREATE:
-        position_ = 0;
-        break;
+		if (owner_.inodealloc(inode))
+		{
+			inode.flags = APEFLAG_FILE;
+			if (owner_.inodewrite(inode))
+			{
+				ApeInode parent;
+				if (owner_.directoryopen(owner_.extractdirectory(filepath), parent))
+				{
+					ApeDirectoryEntry entry;
+					entry.inodenum = inode.num;
+					entry.flags = APEFLAG_FILE;
+					entry.name = owner_.extractfilename(filepath);
 
-    case APEFILE_OPEN:
-        position_ = 0;
-        break;
-
-    default:
+					if (owner_.directoryaddentry(parent, entry))
+					{
+						inodenum_ = inode.num;
+						position_ = 0;
+						return true;
+					}
+				}
+			}	
+		}
         break;
     }
+
+	inodenum_ = INVALIDINODE;
+	position_ = 0;
+	return false;
 }
 
-bool ApeFile::close()
+inline bool ApeFile::good() const
 {
-    if (mode_ == APEFILE_CLOSE)
-        return false;
+	return (inodenum_ != INVALIDINODE);
+}
 
-    return true;
+inline void ApeFile::close()
+{
+    inodenum_ = INVALIDINODE;
+	position_ = 0;
 }
 
 uint32_t ApeFile::read(void* buffer, uint32_t size)
 {
+	if (!good())
+        return 0;
+
+	ApeInode inode;
     ApeBlock block;
     uint32_t bytesread;
 
-    if (mode_ == APEFILE_CLOSE)
-        return 0;
+	if (!owner_.inoderead(inodenum_, inode))
+		return false;
 
     bytesread = 0;
-    while (bytesread < size && position_ < inode_.size)
+    while (bytesread < size && position_ < inode.size)
     {
-		uint32_t bytestoread = min(BLOCKSIZE - (position_ % BLOCKSIZE), inode_.size - position_);
-        if (!owner_.blockread(inode_, position_ / BLOCKSIZE, block))
+		uint32_t bytestoread = min(BLOCKSIZE - (position_ % BLOCKSIZE), min(inode.size - position_, size - bytesread));
+        if (!owner_.blockread(inode, position_ / BLOCKSIZE, block))
             return 0;
         memcpy(&((uint8_t*)buffer)[bytesread], &block.data[position_ % BLOCKSIZE], bytestoread);
         position_ += bytestoread;
@@ -116,13 +166,17 @@ uint32_t ApeFile::read(void* buffer, uint32_t size)
 
 bool ApeFile::seek(ApeFileSeekMode seekmode, int32_t offset)
 {
-    if (mode_ == APEFILE_CLOSE)
-        return false;
+    if (!good())
+		return false;
+
+	ApeInode inode;
+	if (!owner_.inoderead(inodenum_, inode))
+		return false;
 
     switch (seekmode)
     {
     case APESEEK_CUR:
-        if (offset >= 0 && position_ + offset < inode_.size)
+        if (position_ + offset >= 0 && position_ + offset < inode.size)
         {
             position_ += offset;
             return true;
@@ -130,15 +184,15 @@ bool ApeFile::seek(ApeFileSeekMode seekmode, int32_t offset)
         break;
 
     case APESEEK_END:
-        if (offset <= 0 && inode_.size + offset >= 0)
+        if (offset <= 0 && inode.size + offset >= 0)
         {
-            position_ = inode_.size + offset;
+            position_ = inode.size + offset;
             return true;
         }
         break;
 
     case APESEEK_SET:
-        if (offset >= 0 && (uint32_t)offset < inode_.size)
+        if (offset >= 0 && (uint32_t)offset < inode.size)
         {
             position_ = offset;
             return true;
@@ -151,7 +205,10 @@ bool ApeFile::seek(ApeFileSeekMode seekmode, int32_t offset)
 
 inline uint32_t ApeFile::size() const
 {
-    return inode_.size;
+	ApeInode inode;
+	if (!owner_.inoderead(inodenum_, inode))
+		return 0;
+    return inode.size;
 }
 
 inline uint32_t ApeFile::tell() const
@@ -159,24 +216,28 @@ inline uint32_t ApeFile::tell() const
     return position_;
 }
 
-uint32_t ApeFile::write(void* buffer, uint32_t size)
+uint32_t ApeFile::write(const void* buffer, uint32_t size)
 {
-    if (mode_ == APEFILE_CLOSE)
-        return 0;
+    if (!good())
+		return false;
+	
+	ApeInode inode;
+	if (!owner_.inoderead(inodenum_, inode))
+		return false;
 
 	ApeBlock block;
     uint32_t byteswrote = 0;
 
-    while (byteswrote < size && position_ < inode_.size)
+    while (byteswrote < size)
     {
-		if (position_ / BLOCKSIZE >= inode_.blockscount)
+		if (position_ / BLOCKSIZE >= inode.blockscount)
 		{	// file grow
-			if (!owner_.blockalloc(inode_, block))
+			if (!owner_.blockalloc(inode, block))
 				return 0;
 		}
 		else
 		{	// get the corresponding block
-			if (!owner_.blockread(inode_, position_ / BLOCKSIZE, block))
+			if (!owner_.blockread(inode, position_ / BLOCKSIZE, block))
 				return 0;
 		}
 		uint32_t bytestowrite = min(BLOCKSIZE - (position_ % BLOCKSIZE), size - byteswrote);
@@ -186,9 +247,13 @@ uint32_t ApeFile::write(void* buffer, uint32_t size)
 		position_ += bytestowrite;
         byteswrote += bytestowrite;
 
-		if (position_ > inode_.size)
-			inode_.size = position_;
-    }
+		if (position_ > inode.size)
+		{
+			inode.size = position_;
+			if (!owner_.inodewrite(inode))
+				return 0; // that's a problem D:
+		}
+	}
     return byteswrote;
 }
 
@@ -197,17 +262,16 @@ ApeFile::~ApeFile()
     close();
 }
 
-bool ApeFileSystem::blockalloc(ApeBlock& block, uint8_t fillbyte)
+bool ApeFileSystem::blockalloc(ApeBlock& block)
 {
 	uint32_t freebit = blocksbitmap_.findunsetbit();
     if (freebit == NOBIT)
         return false;
 
     blocksbitmap_.setbit(freebit);
-    memset(&block, fillbyte, sizeof(ApeBlock));
     block.num = freebit;
 
-	return blockwrite(block);
+	return true;
 }
 
 bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
@@ -227,19 +291,20 @@ bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
 		}
 		return true;
 	}
-	
+
 	// offset of the new block
-	uint32_t blockpos = inode.blockscount - 8; 
+	uint32_t blockpos = inode.blockscount - 8;
     ApeBlock iblock;
-	
+
     if (blockpos = 1024)
     {
 		if (inode.blocks[8] == INVALIDBLOCK)
 		{	// create new indirect block
-			if (!blockalloc(iblock, 0xFF))
+			if (!blockalloc(iblock))
 				return false;
 			inode.blocks[8] = iblock.num;
-			if (!inodewrite(inode))
+			iblock.fill(0xFF); // fill with invalid blocks
+			if (!inodewrite(inode) || !blockwrite(iblock))
 			{
 				inode.blocks[8] = INVALIDBLOCK;
 				return false;
@@ -259,10 +324,11 @@ bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
 		ApeBlock diblock;
 		if (inode.blocks[9] == INVALIDBLOCK)
 		{	// create new double-indirect block
-			if (!blockalloc(diblock, 0xFF))
+			if (!blockalloc(diblock))
 				return false;
 			inode.blocks[9] = diblock.num;
-			if (!inodewrite(inode))
+			diblock.fill(0xFF); // fill with invalid blocks
+			if (!inodewrite(inode) || !blockwrite(diblock))
 			{
 				inode.blocks[9] = INVALIDBLOCK;
 				return false;
@@ -276,10 +342,11 @@ bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
 
 		if (diblock.data[blockpos / 1024] == INVALIDBLOCK)
 		{	// create new indirect block
-			if (!blockalloc(iblock, 0xFF))
+			if (!blockalloc(iblock))
 				return false;
+			iblock.fill(0xFF); // fill with invalid blocks
 			diblock.data[blockpos / 1024] = iblock.num;
-			if (!blockwrite(diblock))
+			if (!blockwrite(diblock) || !blockwrite(iblock))
 				return false;
 		}
 		else
@@ -292,7 +359,7 @@ bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
 		return blockwrite(iblock);
     }
 
-    return true;
+    return false;
 }
 
 bool ApeFileSystem::blockfree(blocknum_t blocknum)
@@ -346,20 +413,30 @@ bool ApeFileSystem::blockwrite(ApeBlock& block)
 
 bool ApeFileSystem::directorydelete(const string& path)
 {
-    
+    ApeInode inode;
+    if (!directoryopen(path, inode))
+        return false;
+    if (inode.isdirectory() && inode.size == 0)
+    {
+        ApeInode parent;
+        if (!directoryopen(extractdirectory(path), parent))
+            return false;
+
+        return directoryremoveentry(parent, extractfilename(path));
+    }
 	return false;
 }
 
 bool ApeFileSystem::directoryexists(const string& path)
 {
-    
+
 	return false;
 }
 
 bool ApeFileSystem::directorycreate(const string& path)
 {
 	ApeInode parent;
-	
+
 	if (!directoryopen(extractdirectory(path), parent))
 		return false;
 
@@ -369,6 +446,9 @@ bool ApeFileSystem::directorycreate(const string& path)
 
 	// TODO: free in case of a failure
 	if (!inodealloc(inode))
+		return false;
+	inode.flags = APEFLAG_DIRECTORY;
+	if (!inodewrite(inode))
 		return false;
 
 	entry.inodenum = inode.num;
@@ -381,33 +461,9 @@ bool ApeFileSystem::directorycreate(const string& path)
 	return directoryaddentry(parent, entry);
 }
 
-bool ApeFileSystem::directoryopen(const string& path, ApeInode& inode)
+inline bool ApeFileSystem::directoryopen(const string& path, ApeInode& inode)
 {
-    vector<string> parsedpath;
-    
-    ApeDirectoryEntry tempentry;
-    // open root inode
-    if (!inoderead(0, inode))
-        return false;
-
-    if (path == "/")
-        return true;
-
-    if (!parsepath(path, parsedpath))
-        return false;
-
-    // go though all folders
-    for (size_t i = 0; i < parsedpath.size(); i++)
-    {
-        if (!directoryfindentry(inode, parsedpath[i], tempentry))
-            return false;
-        if (!tempentry.isdirectory())
-            return false;
-        if (!inoderead(tempentry.inodenum, inode))
-            return false;
-    }
-
-    return true;
+	return (inodeopen(path, inode) && inode.isdirectory());
 }
 
 bool ApeFileSystem::filedelete(const string& filepath)
@@ -417,12 +473,6 @@ bool ApeFileSystem::filedelete(const string& filepath)
 }
 
 bool ApeFileSystem::fileexists(const string& filepath)
-{
-
-    return false;
-}
-
-bool ApeFileSystem::fileopen(const string& filepath, ApeFileMode mode, ApeFile& file)
 {
 
     return false;
@@ -439,7 +489,7 @@ bool ApeFileSystem::inodealloc(ApeInode& inode)
 	memset(&inode.blocks, 0xFF, sizeof(inode.blocks));
     inode.num = freebit;
 
-    return inodewrite(inode);
+    return true;
 }
 
 bool ApeFileSystem::inodefree(inodenum_t inodenum)
@@ -456,9 +506,39 @@ bool ApeFileSystem::inoderead(inodenum_t inodenum, ApeInode& inode)
 
 bool ApeFileSystem::inodewrite(ApeInode& inode)
 {
+	assert(inode.flags != 0);
     file_.seekp(inodesoffset_ + inode.num * sizeof(ApeInodeRaw));
     file_.write((char*)&inode, sizeof(ApeInodeRaw));
     return file_.good();
+}
+
+bool ApeFileSystem::inodeopen(const string& path, ApeInode& inode)
+{
+	vector<string> parsedpath;
+
+    ApeDirectoryEntry tempentry;
+    // open root inode
+    if (!inoderead(0, inode))
+        return false;
+
+    if (path == "/")
+        return true;
+
+    if (!parsepath(path, parsedpath))
+        return false;
+
+    // go though all folders
+    for (size_t i = 0; i < parsedpath.size(); i++)
+    {
+        if (!directoryfindentry(inode, parsedpath[i], tempentry))
+            return false;
+        if (i + 1 < parsedpath.size() && !tempentry.isdirectory())
+            return false;
+        if (!inoderead(tempentry.inodenum, inode))
+            return false;
+    }
+
+    return true;
 }
 
 bool ApeFileSystem::create(const string& fspath, uint32_t fssize)
@@ -500,12 +580,11 @@ bool ApeFileSystem::create(const string& fspath, uint32_t fssize)
 
     // create root folder
     ApeInode rootinode;
-    inodealloc(rootinode);
-	
-    rootinode.flags = APEFLAG_DIRECTORY;
-    inodewrite(rootinode);
-
-    return true;
+	if (!inodealloc(rootinode))
+		return false;
+	assert(rootinode.num == 0);
+	rootinode.flags = APEFLAG_DIRECTORY;
+	return inodewrite(rootinode);
 }
 
 
@@ -553,6 +632,7 @@ string ApeFileSystem::extractfilename(const string &path)
 
 bool ApeFileSystem::directoryaddentry(ApeInode& inode, ApeDirectoryEntry& entry)
 {
+	assert(entry.flags != 0);
 	// make sure entry is unique
 	ApeDirectoryEntry dummyentry;
 	if (directoryfindentry(inode, entry.name, dummyentry))
@@ -561,18 +641,18 @@ bool ApeFileSystem::directoryaddentry(ApeInode& inode, ApeDirectoryEntry& entry)
     ApeBlock block;
     entry.namelen = entry.name.length();
     entry.entrysize = entry.realsize();
-    
+
     int n = -1;
     while (blockread(inode, ++n, block))
     {
 		int i = 0;
         ApeDirectoryEntryRaw *pentry = NULL;
 		ApeDirectoryEntryRaw *ientry = (ApeDirectoryEntryRaw*)&block.data[0];
-		
+
         while (i < BLOCKSIZE && ientry->entrysize != 0)
         {
 			int entryfreesize = ientry->freesize();
-            
+
 			// fits in the free space?
             if (entryfreesize >= entry.entrysize)
             {
@@ -594,9 +674,13 @@ bool ApeFileSystem::directoryaddentry(ApeInode& inode, ApeDirectoryEntry& entry)
 			if (freesize >= entry.entrysize)
 			{
 				if (pentry)
-					pentry->entrysize = pentry->realsize();
+				{
+				    inode.size -= pentry->freesize();
+				    pentry->entrysize = pentry->realsize();
+				}
+				inode.size += entry.entrysize;
 				entry.write(&block.data[BLOCKSIZE - freesize]);
-				return blockwrite(block);
+				return inodewrite(inode) && blockwrite(block);
 			}
 		}
     }
@@ -604,9 +688,10 @@ bool ApeFileSystem::directoryaddentry(ApeInode& inode, ApeDirectoryEntry& entry)
     // we will need a new block
     if (blockalloc(inode, block))
     {
+		block.fill(0); // fill null entries
         entry.write(&block.data[0]);
 		inode.size += entry.entrysize;
-        return blockwrite(block);
+        return inodewrite(inode) && blockwrite(block);
     }
 
     return false;
@@ -615,7 +700,7 @@ bool ApeFileSystem::directoryaddentry(ApeInode& inode, ApeDirectoryEntry& entry)
 bool ApeFileSystem::directoryfindentry(ApeInode& inode, const string& name, ApeDirectoryEntry& entry)
 {
     ApeBlock block;
-    
+
     int n = -1;
     while (blockread(inode, ++n, block))
     {
@@ -644,6 +729,56 @@ bool ApeFileSystem::directoryfindentry(ApeInode& inode, const string& name, ApeD
 
 bool ApeFileSystem::directoryremoveentry(ApeInode& inode, const string& name)
 {
+    ApeBlock block;
+    int n = -1;
+
+    while (blockread(inode, ++n, block))
+    {
+        int i = 0;
+        ApeDirectoryEntryRaw *pentry = NULL;
+
+        do
+        {
+            ApeDirectoryEntryRaw *ientry = (ApeDirectoryEntryRaw*)&block.data[i];
+            if (ientry->entrysize == 0)
+                break;
+
+            if (ientry->namelen == name.length())
+            {
+                ApeDirectoryEntry entry;
+                entry.read(ientry);
+                if (entry.name == name)
+                {
+                    if (pentry)
+                    {   // if there is a previous entry increase its size
+                        pentry->entrysize += ientry->entrysize;
+                    }
+                    else
+                    {   // first entry of the block
+                        ApeDirectoryEntryRaw *nentry = (ApeDirectoryEntryRaw*)&block.data[i + ientry->entrysize];
+                        if (nentry->entrysize != 0)
+                        {   // replace current with the next entry
+                            nentry->entrysize += ientry->entrysize;
+                            memcpy(ientry, nentry, nentry->realsize());
+                        }
+                        else
+                        {   // the first and final entry of the block
+                            // just mark as empty
+                            inode.size -= ientry->entrysize;
+                            ientry->entrysize = 0;
+                            if (!inodewrite(inode))
+								return false;
+                        }
+                    }
+                    return blockwrite(block);
+                }
+            }
+
+            i += ientry->entrysize;
+            pentry = ientry;
+        } while (i < BLOCKSIZE);
+    }
+
     return false;
 }
 
