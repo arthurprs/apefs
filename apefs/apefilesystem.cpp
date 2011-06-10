@@ -362,7 +362,7 @@ bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
     return false;
 }
 
-bool ApeFileSystem::blockfree(blocknum_t blocknum)
+inline bool ApeFileSystem::blockfree(blocknum_t blocknum)
 {
     return blocksbitmap_.unsetbit(blocknum);
 }
@@ -414,9 +414,7 @@ bool ApeFileSystem::blockwrite(ApeBlock& block)
 bool ApeFileSystem::directorydelete(const string& path)
 {
     ApeInode inode;
-    if (!directoryopen(path, inode))
-        return false;
-    if (inode.isdirectory() && inode.size == 0)
+    if (directoryopen(path, inode) && inode.size == 0)
     {
         ApeInode parent;
         if (!directoryopen(extractdirectory(path), parent))
@@ -427,10 +425,10 @@ bool ApeFileSystem::directorydelete(const string& path)
 	return false;
 }
 
-bool ApeFileSystem::directoryexists(const string& path)
+inline bool ApeFileSystem::directoryexists(const string& path)
 {
-
-	return false;
+	ApeInode inode;
+	return directoryopen(path, inode);
 }
 
 bool ApeFileSystem::directorycreate(const string& path)
@@ -439,7 +437,6 @@ bool ApeFileSystem::directorycreate(const string& path)
 
 	if (!directoryopen(extractdirectory(path), parent))
 		return false;
-
 
 	ApeDirectoryEntry entry;
 	ApeInode inode;
@@ -468,14 +465,22 @@ inline bool ApeFileSystem::directoryopen(const string& path, ApeInode& inode)
 
 bool ApeFileSystem::filedelete(const string& filepath)
 {
+    ApeInode inode;
+	if (inodeopen(filepath, inode) && inode.isfile())
+    {
+        ApeInode parent;
+        if (!directoryopen(extractdirectory(filepath), parent))
+            return false;
 
-    return false;
+        return directoryremoveentry(parent, extractfilename(filepath));
+    }
+	return false;
 }
 
-bool ApeFileSystem::fileexists(const string& filepath)
+inline bool ApeFileSystem::fileexists(const string& filepath)
 {
-
-    return false;
+	ApeInode inode;
+	return (inodeopen(filepath, inode) && inode.isfile());
 }
 
 bool ApeFileSystem::inodealloc(ApeInode& inode)
@@ -492,7 +497,7 @@ bool ApeFileSystem::inodealloc(ApeInode& inode)
     return true;
 }
 
-bool ApeFileSystem::inodefree(inodenum_t inodenum)
+inline bool ApeFileSystem::inodefree(inodenum_t inodenum)
 {
     return inodesbitmap_.unsetbit(inodenum);
 }
