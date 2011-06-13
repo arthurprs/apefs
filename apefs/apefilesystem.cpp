@@ -425,6 +425,37 @@ bool ApeFileSystem::directorydelete(const string& path)
 	return false;
 }
 
+bool ApeFileSystem::directoryenum(const string& path, vector<ApeDirectoryEntry>& entries)
+{
+	ApeInode inode;
+	if (!directoryopen(path, inode))
+		return false;
+
+	ApeBlock block;
+
+    int n = -1;
+    while (blockread(inode, ++n, block))
+    {
+        int i = 0;
+
+        do
+        {
+            ApeDirectoryEntryRaw* ientry = (ApeDirectoryEntryRaw*)&block.data[i];
+            if (ientry->entrysize == 0)
+                break;
+
+			ApeDirectoryEntry entry;
+			entry.read(ientry);
+			
+			entries.push_back(entry);
+
+            i += ientry->entrysize;
+        } while (i < BLOCKSIZE);
+    }
+
+    return false;
+}
+
 inline bool ApeFileSystem::directoryexists(const string& path)
 {
 	ApeInode inode;
@@ -615,6 +646,14 @@ bool ApeFileSystem::parsepath(const string &path, vector<string> &parsedpath)
     return !parsedpath.empty();
 }
 
+string ApeFileSystem::joinpath(const string& p1, const string& p2)
+{
+	if (p1.back() == '/')
+		return p1 + p2;
+	else
+		return p1 + "/" + p2; 
+}
+
 string ApeFileSystem::extractdirectory(const string &path)
 {
 	int sep = path.rfind('/');
@@ -709,12 +748,11 @@ bool ApeFileSystem::directoryfindentry(ApeInode& inode, const string& name, ApeD
     int n = -1;
     while (blockread(inode, ++n, block))
     {
-        ApeDirectoryEntryRaw *ientry;
         int i = 0;
 
         do
         {
-            ientry = (ApeDirectoryEntryRaw*)&block.data[i];
+            ApeDirectoryEntryRaw* ientry = (ApeDirectoryEntryRaw*)&block.data[i];
             if (ientry->entrysize == 0)
                 break;
 

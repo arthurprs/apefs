@@ -106,7 +106,6 @@ struct ApeDirectoryEntry : ApeDirectoryEntryRaw
 /*
     forward class declarations..
 */
-class ApeDirectory;
 class ApeFile;
 class ApeFileSystem;
 
@@ -171,7 +170,7 @@ public:
     bool directorycreate(const string& path);
     bool directoryopen(const string& path, ApeInode& inode);
     bool directorydelete(const string& path);
-
+	bool directoryenum(const string& path, vector<ApeDirectoryEntry>& entries);
     bool open(const string &fspath);
     bool create(const string& fspath, uint32_t fssize);
     bool close();
@@ -179,6 +178,7 @@ public:
 
 	static string extractdirectory(const string &path);
 	static string extractfilename(const string& path);
+	static string joinpath(const string& p1, const string& p2);
 	static bool parsepath(const string &path, vector<string> &parsedpath);
 private:
     uint32_t inodesoffset_;

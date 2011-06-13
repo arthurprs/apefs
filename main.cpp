@@ -3,7 +3,29 @@
 
 using namespace std;
 
-int main()
+void print(ApeFileSystem& fs, const string &path, int level = 0)
+{
+	vector<ApeDirectoryEntry> entries;
+	fs.directoryenum(path, entries);
+	for (int i = 0; i < entries.size(); i++)
+	{
+		for (int l = 0; l < level; l++)
+		{
+			cout << " ";
+		}
+		if (entries[i].isdirectory())
+		{
+			cout << "+ " << entries[i].name << endl;
+			print(fs, fs.joinpath(path, entries[i].name), level + 1);
+		}
+		else
+		{
+			cout << entries[i].name << endl;
+		}
+	}
+}
+
+void test()
 {
 
 	ApeFileSystem fs;
@@ -47,8 +69,13 @@ int main()
 	r = fs.directoryopen("/testdir2/testdir2-1/testdir2-1-1", inode);
 	cout << r << " " << inode.num << endl;
 
+	print(fs, "/");
+
 	r = fs.directorydelete("/testdir2/testdir2-1/testdir2-1-1");
     cout << r << endl;
+
+	r = fs.directorycreate("/testdir2/testdir2-1/testdir2-1-1");
+	cout <<  r << endl;
 
     r = fs.directorydelete("/testdir1");
     cout << r << endl;
@@ -81,7 +108,16 @@ int main()
 
 	r = file.open("/testdir1/myfile.txt", APEFILE_CREATE);
 	cout << r << endl;
+
+	r = fs.filedelete("/testdir1/myfile.txt");
+	cout << r << endl;
+
+	r = file.open("/testdir1/myfile.txt", APEFILE_OPEN);
+	cout << (r == false) << endl;
 	
+	r = file.open("/testdir1/myfile.txt", APEFILE_CREATE);
+	cout << r << endl;
+
 	r = file.open("/testdir1/myfile.txt", APEFILE_OPEN);
 	cout << r << endl;
 
@@ -95,7 +131,7 @@ int main()
 	char* writebuffer = new char[BLOCKSIZE + 10];
 	memset(writebuffer, 'a', BLOCKSIZE + 10);
 	char* readbuffer = new char[BLOCKSIZE + 10];
-	
+
 	r = BLOCKSIZE + 10 == file.write(writebuffer, BLOCKSIZE + 10);
 	cout << r << endl;
 
@@ -122,6 +158,12 @@ int main()
 		cout << (readstrbuffer == writestrbuffer) << endl;
 	}
 
-	system("PAUSE");
+	print(fs, "/");
+}
+
+int main()
+{
+    test();
+   	system("PAUSE");
     return 0;
 }
