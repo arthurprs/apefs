@@ -28,7 +28,7 @@ struct ApeBlock
 {
     blocknum_t num;
     uint8_t data[BLOCKSIZE];
-	void fill(uint8_t fillbyte);
+    void fill(uint8_t fillbyte);
 };
 
 /*
@@ -125,19 +125,20 @@ enum ApeFileSeekMode {APESEEK_SET, APESEEK_CUR, APESEEK_END};
 class ApeFile
 {
 public:
-	ApeFile(ApeFileSystem& owner);
-    bool open(const string& filepath, ApeFileMode mode);
+    ApeFile(ApeFileSystem& owner);
     ~ApeFile();
+    bool open(const string& filepath, ApeFileMode mode);
     uint32_t read(void* buffer, uint32_t size);
     uint32_t write(const void* buffer, uint32_t size);
-    bool seek(ApeFileSeekMode mode, int32_t offset);
+    bool seek(ApeFileSeekMode seekmode, int32_t offset);
     uint32_t tell() const;
     uint32_t size() const;
-	bool good() const;
+    bool good() const;
     void close();
+
+    uint32_t position;
+    inodenum_t inodenum;
 private:
-	uint32_t position_;
-	inodenum_t inodenum_;
     ApeFileSystem& owner_;
 };
 
@@ -146,43 +147,55 @@ class ApeFileSystem
 public:
     ApeFileSystem();
     ~ApeFileSystem();
+    // filesystem related
+    bool open(const string& fspath);
+    bool create(const string& fspath, uint32_t fssize);
+    bool close();
+    uint32_t size() const;
+    // file related
+    bool fileexists(const string& filepath);
+    bool filedelete(const string& filepath);
+    bool fileopen(const string& filepath, ApeFileMode mode, ApeFile& file);
+    uint32_t fileread(ApeFile& file, void* buffer, uint32_t size);
+    uint32_t filewrite(ApeFile& file, const void* buffer, uint32_t size);
+    bool fileseek(ApeFile& file, ApeFileSeekMode mode, int32_t offset);
+    uint32_t tell(const ApeFile& file);
+    uint32_t filesize(const ApeFile& file);
+    void fileclose(ApeFile& file);
+    // directory related
+    bool directoryexists(const string& path);
+    bool directorycreate(const string& path);
+    bool directorydelete(const string& path);
+    bool directoryenum(const string& path, vector<ApeDirectoryEntry>& entries);
+    // path related
+    static string extractdirectory(const string &path);
+    static string extractfilename(const string& path);
+    static string joinpath(const string& p1, const string& p2);
+    static bool parsepath(const string &path, vector<string> &parsedpath);
+private:
     // block related
     bool blockfree(blocknum_t blocknum);
     bool blockread(blocknum_t blocknum, ApeBlock& block);
     bool blockread(const ApeInode& inode, uint32_t blockpos, ApeBlock& block);
     bool blockwrite(ApeBlock& block);
-	bool blockalloc(ApeBlock& block);
+    bool blockalloc(ApeBlock& block);
     bool blockalloc(ApeInode& inode, ApeBlock& block);
     // inode related
     bool inodefree(inodenum_t inodenum);
     bool inoderead(inodenum_t inodenum, ApeInode& inode);
     bool inodewrite(ApeInode& inode);
     bool inodealloc(ApeInode& inode);
-	bool inodeopen(const string& path, ApeInode& inode);
-    // file related
-    bool fileexists(const string& filepath);
-    bool filedelete(const string& filepath);
+    bool inodeopen(const string& path, ApeInode& inode);
     // directory related
+    bool directoryopen(const string& path, ApeInode& inode);
     bool directoryaddentry(ApeInode& inode, ApeDirectoryEntry& entry);
     bool directoryremoveentry(ApeInode& inode, const string& name);
     bool directoryfindentry(ApeInode& inode, const string& name, ApeDirectoryEntry& entry);
-    bool directoryexists(const string& path);
-    bool directorycreate(const string& path);
-    bool directoryopen(const string& path, ApeInode& inode);
-    bool directorydelete(const string& path);
-	bool directoryenum(const string& path, vector<ApeDirectoryEntry>& entries);
-    bool open(const string &fspath);
-    bool create(const string& fspath, uint32_t fssize);
-    bool close();
-    uint32_t size() const;
 
-	static string extractdirectory(const string &path);
-	static string extractfilename(const string& path);
-	static string joinpath(const string& p1, const string& p2);
-	static bool parsepath(const string &path, vector<string> &parsedpath);
-private:
+	uint32_t inodesbitmapoffset_;
+	uint32_t blocksbitmapoffset_;
     uint32_t inodesoffset_;
-    uint32_t blocksoffset_;
+	uint32_t blocksoffset_;
     ApeSuperBlock superblock_;
     fstream file_;
     ApeBitMap inodesbitmap_;

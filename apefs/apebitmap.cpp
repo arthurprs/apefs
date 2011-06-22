@@ -1,8 +1,8 @@
 #include "apebitmap.h"
 
 ApeBitMap::ApeBitMap()
+    : bits_(NULL), size_(0)
 {
-    bits_ = NULL;
 }
 
 void ApeBitMap::reserve(uint32_t size)
@@ -16,9 +16,9 @@ void ApeBitMap::reserve(uint32_t size)
     }
 }
 
-void ApeBitMap::tobuffer(void* bitbuffer)
+void* ApeBitMap::bits() const
 {
-    memcpy(bitbuffer, bits_, size_);
+    return bits_;
 }
 
 void ApeBitMap::frombuffer(void* bitbuffer, uint32_t size)
@@ -72,7 +72,7 @@ uint32_t ApeBitMap::findunsetbit()
             uint8_t mask = 128;
             while ((byte & mask) != 0)
             {
-                mask /= 2;
+                mask >>= 1;
                 bit++;
             }
             return bit;
@@ -81,7 +81,7 @@ uint32_t ApeBitMap::findunsetbit()
     return NOBIT;
 }
 
-inline uint32_t ApeBitMap::size() const
+uint32_t ApeBitMap::size() const
 {
     return size_;
 }
@@ -91,7 +91,7 @@ void ApeBitMap::setall()
     memset(bits_, 0xFF, size_);
 }
 
-    
+
 void ApeBitMap::unsetall()
 {
     memset(bits_, 0, size_);
