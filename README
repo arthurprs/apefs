@@ -3,7 +3,7 @@ Ape File System
 A virtual filesystem intended for educational purposes, looselly based on EXT2.
 
 Not implemented:
-- Dates
+- Acess/Create/Modify times
 - Cache
 - Concurrency (easy to fix)
 
