@@ -1,0 +1,12 @@
+Ape File System
+
+A virtual filesystem intended for educational purposes, looselly based on EXT2.
+
+Not implemented:
+- Dates
+- Cache
+- Concurrency (easy to fix)
+
+Author:
+Arthur Pires Ribeiro Silva, arthurprs (at) gmail (dot) com
+Federal University of Uberlândia

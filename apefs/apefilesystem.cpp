@@ -159,14 +159,14 @@ bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
     uint32_t blockpos = inode.blockscount - 8;
     ApeBlock iblock;
 
-    if (blockpos == 1024)
+    if (blockpos < 1024)
     {
         if (inode.blocks[8] == INVALIDBLOCK)
         {
             // create new indirect block
             if (!blockalloc(iblock))
                 return false;
-            inode.blocks[8] = iblock.num;
+			inode.blocks[8] = iblock.num;
             iblock.fill(0xFF); // fill with invalid blocks
             if (!inodewrite(inode) || !blockwrite(iblock))
             {
@@ -181,8 +181,15 @@ bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
                 return false;
         }
 
-        iblock.data[blockpos] = block.num;
-        return blockwrite(iblock);
+        ((blocknum_t*)iblock.data)[blockpos] = block.num;
+        if (blockwrite(iblock))
+		{
+			inode.blockscount++;
+			if (inodewrite(inode))
+				return true;
+			inode.blockscount--;
+			return false;
+		}
     }
     else
     {
@@ -207,25 +214,32 @@ bool ApeFileSystem::blockalloc(ApeInode& inode, ApeBlock& block)
                 return false;
         }
 
-        if (diblock.data[blockpos / 1024] == INVALIDBLOCK)
+        if (((blocknum_t*)diblock.data)[blockpos / 1024] == INVALIDBLOCK)
         {
             // create new indirect block
             if (!blockalloc(iblock))
                 return false;
             iblock.fill(0xFF); // fill with invalid blocks
-            diblock.data[blockpos / 1024] = iblock.num;
+            ((blocknum_t*)diblock.data)[blockpos / 1024] = iblock.num;
             if (!blockwrite(diblock) || !blockwrite(iblock))
                 return false;
         }
         else
         {
             // access indirect block
-            if (!blockread(diblock.data[blockpos / 1024], iblock))
+            if (!blockread(((blocknum_t*)diblock.data)[blockpos / 1024], iblock))
                 return false;
         }
 
-        iblock.data[blockpos % 1024] = block.num;
-        return blockwrite(iblock);
+        ((blocknum_t*)iblock.data)[blockpos % 1024] = block.num;
+        if (blockwrite(iblock))
+		{
+			inode.blockscount++;
+			if (inodewrite(inode))
+				return true;
+			inode.blockscount--;
+			return false;
+		}
     }
 
     return false;
@@ -263,16 +277,16 @@ bool ApeFileSystem::blockread(const ApeInode& inode, uint32_t blockpos, ApeBlock
     {
         if (!blockread(inode.blocks[8], iblock))
             return false;
-        return blockread(iblock.data[rpos], block);
+        return blockread(((blocknum_t*)iblock.data)[rpos], block);
     }
     else if (rpos < 1024 * 1024)
     {
         ApeBlock diblock;
         if (!blockread(inode.blocks[9], diblock))
             return false;
-        if (!blockread(diblock.data[rpos / 1024], iblock))
+        if (!blockread(((blocknum_t*)diblock.data)[rpos / 1024], iblock))
             return false;
-        return blockread(iblock.data[rpos % 1024], block);
+        return blockread(((blocknum_t*)iblock.data)[rpos % 1024], block);
     }
 
     return false;
@@ -650,7 +664,7 @@ bool ApeFileSystem::create(const string& fspath, uint32_t fssize)
         return false;
 
     // set the superblock
-    superblock_.blockmaps = (uint8_t) ceil((float)fssize / BLOCKSIZE);
+    superblock_.blockmaps = (uint8_t) ceil((float)fssize / BLOCKSIZE / (BLOCKSIZE * 8));
     superblock_.filesystemsize = superblock_.blockmaps * BLOCKSIZE;
     superblock_.inodemaps = MAXINODES / BLOCKSIZE / 8;
     superblock_.inodeblocks = (uint8_t) ceil((float)BLOCKSIZE + sizeof(ApeInodeRaw));
@@ -719,13 +733,17 @@ string ApeFileSystem::joinpath(const string& p1, const string& p2)
     if (p1.length() > 0 && p1[p1.length() - 1] == '/')
         return p1 + p2;
     else
-        return p1 + "/" + p2;
+        return p1 + '/' + p2;
 }
 
 string ApeFileSystem::extractdirectory(const string &path)
 {
-    unsigned int sep = path.rfind('/');
-    if (sep != string::npos)
+	unsigned int sep = path.rfind('/');
+	if (sep != string::npos && sep == path.length() - 1)
+	{
+		sep = path.rfind('/', sep - 1);
+	}
+	if (sep != string::npos)
     {
         return path.substr(0, sep + 1);
     }
@@ -734,17 +752,29 @@ string ApeFileSystem::extractdirectory(const string &path)
 
 string ApeFileSystem::extractfilename(const string &path)
 {
-    unsigned int sep = path.rfind('/');
-    if (sep != string::npos)
-    {
-        return path.substr(sep + 1);
-    }
+    unsigned int sep;
+	if (path.length() != 0 && path[path.length() - 1] == '/')
+	{
+		sep = path.rfind('/', path.length() - 2);
+		if (sep != string::npos)
+			return path.substr(sep + 1, path.length() - 2);
+	}
+	else
+	{
+		sep = path.rfind('/');
+		if (sep != string::npos)
+			return path.substr(sep + 1);
+	}
     return "";
 }
 
 bool ApeFileSystem::directoryaddentry(ApeInode& inode, ApeDirectoryEntry& entry)
 {
     assert(entry.flags != 0);
+
+	if (entry.name.empty())
+		return false;
+
     // make sure entry is unique
     ApeDirectoryEntry dummyentry;
     if (directoryfindentry(inode, entry.name, dummyentry))
